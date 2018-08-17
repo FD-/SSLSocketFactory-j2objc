@@ -1,5 +1,5 @@
 # SSLSocketFactory-j2objc
-An SSLSocketFactory for j2objc that uses the native iOS Transport Security API. My implementation is in Swift, because I set up the j2objc-generated code as a static library that I use from within a Swift project. In that Swift project, I then create an iOSSSLSocketFactory that I pass to a function of the j2objc-generated code, where the original Java code uses it to create SSLSockets.
+An SSLSocketFactory for j2objc that uses the native iOS [SecureTransport API](https://developer.apple.com/documentation/security/secure_transport). My implementation is in Swift, because I set up the j2objc-generated code as a static library that I use from within a Swift project. In that Swift project, I then create an iOSSSLSocketFactory that I pass to a function of the j2objc-generated code, where the original Java code uses it to create SSLSockets.
 
 # Functionality
 The provided SSLSocketFactory works, but it doesn't provide any customisability. The Transport Security API's default values are used for any parameters. This means it works for the most common scenarios, for example when you have to use an SSLSocket for connecting to an HTTPS server.
