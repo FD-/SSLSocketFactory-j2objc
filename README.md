@@ -14,3 +14,11 @@ This implementation only includes rather basic error handling. Although error de
 For fully bridging SecureTransport's functionality into Java, the best approach would probably be to implement a Java SSLEngine on top of SecureTransport. The `SSLSocket` could then be reimplemented to use this engine. I think the [Conscrypt project](https://github.com/google/conscrypt) implemented a similar `SSLSocket`.
 
 The SecureTransport API should provide all functionality that is needed. For implementing custom certificate handling (eg hostname verification, pinning), the native `SSLContext` can be set to break during the handshake by setting the corresponding option. I guess it's possible to retrieve the server's certificate from there, but I'm not sure how that certificate would be bridged into Java. That's as much as I've learned from putting together pieces of information I gathered online while implementing the basic `SSLSocketFactory`.
+
+# Resources
+Unfortunately, the official documentation for the SecureTransport API doesn't really provide much information. Luckily, there are a few open source projects that documented their findings while implementing support for the SecureTransport API. Some projects I found useful were:
+
+ - https://github.com/IBM-Swift/BlueSSLService
+ - VLC's SecureTransport code: https://github.com/videolan/vlc/blob/master/modules/misc/securetransport.c
+ - https://opensource.apple.com/source/Security/Security-55471/libsecurity_ssl/lib/SecureTransport.h.auto.html provides a mapping from error code numbers to short descriptions
+ - Chromium SecureTransport code (very entertaining documentation): https://github.com/adobe/chromium/blob/master/net/socket/ssl_client_socket_mac.cc
