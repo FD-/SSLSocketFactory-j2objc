@@ -145,7 +145,7 @@ class iOSSSLOutputStream : JavaIoOutputStream {
   }
   
   override func flush() {
-    // The framework keep an SSL caches for reading and writing.
+    // The framework keeps SSL caches for reading and writing.
     // Whenever a call to SSLWrite returns errSSLWouldBlock, the data has been
     // copied to the cache, but not yet (completely) sent. In order to flush
     // this cache, we have to call SSLWrite on an empty buffer.
