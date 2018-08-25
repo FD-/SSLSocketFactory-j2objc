@@ -26,7 +26,9 @@
     return YES;
   }
   @catch (NSException *exception) {
-    *error = [[NSError alloc] initWithDomain:exception.name code:0 userInfo:exception.userInfo];
+    NSMutableDictionary *userInfo = [[NSMutableDictionary alloc] initWithDictionary:exception.userInfo];
+    [userInfo setObject:exception forKey:@"exception"];
+    *error = [[NSError alloc] initWithDomain:exception.name code:0 userInfo:userInfo];
     return NO;
   }
 }
