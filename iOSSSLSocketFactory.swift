@@ -40,21 +40,20 @@ class iOSSSLInputStream : JavaIoInputStream {
   }
   
   override func read(with b: IOSByteArray!, with off: jint, with len: jint) -> jint {
-    if (sslSocket.isClosed() || (sslSocket.underlyingSocket?.isClosed())!){
-      ObjC.throwException(JavaIoIOException(nsString: "Cannot read from closed socket"))
-    }
-    
-    if (sslSocket.isInputShutdown() || (sslSocket.underlyingSocket?.isInputShutdown())!){
-      ObjC.throwException(JavaIoIOException(nsString: "Cannot read from shutdown socket"))
-    }
-    
     let bufferPointer = UnsafeMutableRawPointer(b.byteRef(at: UInt(off)))
     var actuallyRead : Int = 0
-    let status = SSLRead(sslSocket.getSSLContext()!, bufferPointer!, Int(len),
-                         &actuallyRead)
+    var status = noErr
+    
+    repeat {
+      status = SSLRead(sslSocket.getSSLContext()!, bufferPointer!, Int(len), &actuallyRead)
+    } while status == errSSLWouldBlock && actuallyRead == 0
+    
     if (status == errSecSuccess || status == errSSLWouldBlock){
       return jint(actuallyRead)
     } else {
+      if let exception = sslSocket.underlyingException {
+        ObjC.throwException(exception)
+      }
       throwIOException(description: "Error reading from SSL: ", status: status)
     }
     return jint(actuallyRead)
@@ -68,7 +67,7 @@ class iOSSSLInputStream : JavaIoInputStream {
     let buffer = IOSByteArray.newArray(withLength: 1)
     let actuallyRead = read(with: buffer)
     if (actuallyRead == 1) {
-      let resultByte : jbyte = (buffer?.byte(at: 0))!
+      let resultByte: jbyte = (buffer?.byte(at: 0))!
       return jint(resultByte)
     } else {
       return actuallyRead
@@ -81,7 +80,8 @@ class iOSSSLInputStream : JavaIoInputStream {
   
   override func available() -> jint {
     // Not supported
-    return 0;
+    ObjC.throwException(JavaIoIOException(nsString: "Available is not supported"))
+    return -1;
   }
   
   override func mark(with readlimit: jint) {
@@ -111,25 +111,20 @@ class iOSSSLOutputStream : JavaIoOutputStream {
   }
   
   override func write(with b: IOSByteArray!, with off: jint, with len: jint) {
-    if (sslSocket.isClosed() || (sslSocket.underlyingSocket?.isClosed())!){
-      ObjC.throwException(JavaIoIOException(nsString: "Cannot write to closed socket"))
-    }
-    
-    if (sslSocket.isOutputShutdown() || (sslSocket.underlyingSocket?.isOutputShutdown())!){
-      ObjC.throwException(JavaIoIOException(nsString: "Cannot write to shutdown socket"))
-    }
-    
     var bufferPointer = UnsafeMutableRawPointer(b.byteRef(at: UInt(off)))
-    var actuallyWritten : Int = 0
-    var remaining : Int = Int(len);
+    var actuallyWritten: Int = 0
+    var remaining: Int = Int(len);
     
-    while remaining > 0 {
-      let status = SSLWrite(sslSocket.getSSLContext()!, bufferPointer, remaining,
+    while (remaining > 0) {
+      let status = SSLWrite(self.sslSocket.getSSLContext()!, bufferPointer, remaining,
                             &actuallyWritten)
       if (status == noErr || status == errSSLWouldBlock){
         bufferPointer = bufferPointer?.advanced(by: actuallyWritten)
         remaining -= actuallyWritten
       } else {
+        if let exception = sslSocket.underlyingException {
+          ObjC.throwException(exception)
+        }
         throwIOException(description: "Error writing to SSL: ", status: status)
       }
     }
@@ -150,38 +145,39 @@ class iOSSSLOutputStream : JavaIoOutputStream {
   }
   
   override func flush() {
-    // The framework keeps an SSL cache. Whenever a call to SSLWrite returns
-    // errSSLWouldBlock, the data has been copied to the cache, but not yet
-    // (completely) sent. In order to flush this cache, we have to call
-    // SSLWrite on an empty buffer
+    // The framework keep an SSL caches for reading and writing.
+    // Whenever a call to SSLWrite returns errSSLWouldBlock, the data has been
+    // copied to the cache, but not yet (completely) sent. In order to flush
+    // this cache, we have to call SSLWrite on an empty buffer.
     
     var status : OSStatus
     var actuallyWritten : Int = 0
     
     repeat {
       status = SSLWrite(sslSocket.getSSLContext()!, nil, 0, &actuallyWritten)
-    } while status == errSSLWouldBlock
+    } while (status == errSSLWouldBlock)
     
     sslSocket.getUnderlyingSocket().getOutputStream().flush()
   }
 }
 
-class iOSSSLSocket : WrappedSSLSocket{
-  var sslContext : SSLContext?
-  var inputStream : iOSSSLInputStream?
-  var outputStream : iOSSSLOutputStream?
-  var underlyingSocket : JavaNetSocket?
+class iOSSSLSocket: UVDWrappedSSLSocket{
+  var sslContext: SSLContext?
+  var inputStream: iOSSSLInputStream?
+  var outputStream: iOSSSLOutputStream?
+  var underlyingSocket: JavaNetSocket?
+  var underlyingException: JavaLangException?
   
   init(underlyingSocket: JavaNetSocket, hostName: String) {
     self.underlyingSocket = underlyingSocket
     self.sslContext = SSLCreateContext(nil, SSLProtocolSide.clientSide,
                                        SSLConnectionType.streamType)
-  
+    
     super.init(javaNetSocket: underlyingSocket)
     
     self.inputStream = iOSSSLInputStream(sslSocket: self)
     self.outputStream = iOSSSLOutputStream(sslSocket: self)
-  
+    
     var status = noErr
     status = SSLSetIOFuncs(sslContext!, sslReadCallback, sslWriteCallback)
     if (status != noErr) {
@@ -223,7 +219,11 @@ class iOSSSLSocket : WrappedSSLSocket{
       ObjC.throwException(JavaIoIOException(nsString: "Already closed"))
     }
     
-    SSLClose(sslContext!)
+    let status = SSLClose(sslContext!)
+    if (status != noErr) {
+      throwIOException(description: "Closing error: ", status: status)
+    }
+    
     underlyingSocket?.close()
   }
   
@@ -238,29 +238,58 @@ class iOSSSLSocket : WrappedSSLSocket{
 
 private func sslReadCallback(connection: SSLConnectionRef, data: UnsafeMutableRawPointer,
                              dataLength: UnsafeMutablePointer<Int>) -> OSStatus {
-  let socket = Unmanaged<iOSSSLSocket>.fromOpaque(connection).takeUnretainedValue()
   
-  let javaByteBuffer = IOSByteArray.newArray(withLength: UInt(dataLength.pointee))
+  let socket = Unmanaged<iOSSSLSocket>.fromOpaque(connection).takeUnretainedValue()
   var status = noErr
   
   do {
-    try ObjC.catchException {
-      let askedToRead = dataLength.pointee
-      let actuallyRead = socket.getUnderlyingSocket().getInputStream()
-        .read(with: javaByteBuffer)
-      
-      if actuallyRead > 0 {
-        let jbytePointer = data.bindMemory(to: jbyte.self, capacity: dataLength.pointee)
-        javaByteBuffer?.getBytes(jbytePointer, length:UInt(actuallyRead))
-        dataLength.pointee = Int(actuallyRead)
-        // Important: Return errSSLWouldBlock if we didn't read exactly as much as requested
-        status = actuallyRead < askedToRead ? errSSLWouldBlock : noErr
-      } else {
-        status = errSSLClosedAbort
+    // The SecureTransport API sometimes requests data from the
+    // callback even if it still has application data in its buffer. If we would
+    // blindly read from the underlying (blocking) socket in that case, the
+    // application layer would only get the data from the SecureTransport buffer
+    // after the blocking read on the underlying socket returns, which in some
+    // cases means we'd have to wait for the timeout to kick in.
+    // By letting the SecureTransport API know we don't have any more data
+    // at this point, we can force it to deplete its internal buffer of application
+    // data.
+    var available: jint = -1
+    do {
+      try ObjC.catchException {
+        available = socket.getUnderlyingSocket().getInputStream().available()
+      }
+    } catch {}
+    
+    if (available == 0) {
+      // The underlying socket supports available() and reported that no data is
+      // available.
+      dataLength.pointee = 0
+      status = errSSLWouldBlock
+    } else {
+      try ObjC.catchException {
+        let askedToRead = dataLength.pointee
+        let javaByteBuffer = IOSByteArray.newArray(withLength: UInt(dataLength.pointee))
+        let actuallyRead = socket.getUnderlyingSocket().getInputStream().read(with: javaByteBuffer)
+        
+        if (actuallyRead == 0) {
+          // This case shouldn't actually happen
+          dataLength.pointee = 0
+          status = errSSLWouldBlock
+        } else if (actuallyRead > 0) {
+          let jbytePointer = data.bindMemory(to: jbyte.self, capacity: dataLength.pointee)
+          javaByteBuffer?.getBytes(jbytePointer, length:UInt(actuallyRead))
+          dataLength.pointee = Int(actuallyRead)
+          // Important: Return errSSLWouldBlock if we didn't read exactly as much as requested
+          status = actuallyRead < askedToRead ? errSSLWouldBlock : noErr
+        } else {
+          status = errSSLClosedAbort
+        }
       }
     }
-  } catch {
-    status = errSSLClosedAbort
+  } catch let error as NSError {
+    if let exception = error.userInfo["exception"] {
+      socket.underlyingException = exception as? JavaLangException
+    }
+    status = errSSLInternal
   }
   
   return status
@@ -268,6 +297,7 @@ private func sslReadCallback(connection: SSLConnectionRef, data: UnsafeMutableRa
 
 private func sslWriteCallback(connection: SSLConnectionRef, data: UnsafeRawPointer,
                               dataLength: UnsafeMutablePointer<Int>) -> OSStatus {
+  
   let socket = Unmanaged<iOSSSLSocket>.fromOpaque(connection).takeUnretainedValue()
   
   let jbytePointer = data.bindMemory(to: jbyte.self, capacity: dataLength.pointee)
@@ -279,9 +309,13 @@ private func sslWriteCallback(connection: SSLConnectionRef, data: UnsafeRawPoint
       socket.getUnderlyingSocket().getOutputStream().write(with: javaByteBuffer)
       socket.getUnderlyingSocket().getOutputStream().flush()
     }
-  } catch {
-    return errSSLClosedAbort
+  } catch let error as NSError {
+    if let exception = error.userInfo["exception"] {
+      socket.underlyingException = exception as? JavaLangException
+    }
+    return errSSLInternal
   }
+  
   return noErr
 }
 
