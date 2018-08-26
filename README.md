@@ -3,7 +3,7 @@ An SSLSocketFactory for j2objc that uses the native iOS [SecureTransport API](ht
 
 # Functionality
 The provided `SSLSocketFactory` works, but it doesn't provide any customisability. The SecureTransport API's default values are used for any parameters. This means it works for the most common scenarios, for example when you have to use an `SSLSocket` for connecting to an HTTPS server.
-I successfully use it with a slightly stripped-down version of OkHttp that I ported. In particular, as the required lower-level components are not bridged into the Java layer, I had to remove support for `HostnameVerifier`, and `CertificatePinner`. 
+I successfully use it with a slightly stripped-down version of OkHttp that I ported. In particular, as the required lower-level components are not bridged into the Java layer, I had to remove support for `HostnameVerifier`, and `CertificatePinner` (from OkHttp). 
 
 # Overhead
 Luckily, the iOS SecureTransport API is sufficiently low-level that it doesn't impose any specific threading pattern. This means that we only have a little overhead for creating an `IOSByteArray` when we need to call a function that doesn't accept a raw pointer. In particular, when reading from the underlying Socket, we have to create a new `IOSByteArray` to pass to the `Socket.getInputStream()`'s read function and later copy the data back into the native buffer.
