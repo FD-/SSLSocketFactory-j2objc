@@ -31,10 +31,18 @@ private func throwIOException(description: String, status: OSStatus){
     " - " + statusDescription))
 }
 
+func synchronize<T>(on object: Any, block: () throws -> T) rethrows -> T {
+  objc_sync_enter(object)
+  defer {
+    objc_sync_exit(object)
+  }
+  return try block()
+}
+
 class iOSSSLInputStream : JavaIoInputStream {
   unowned let sslSocket : iOSSSLSocket
   
-  init(sslSocket : iOSSSLSocket) {
+  init(sslSocket: iOSSSLSocket) {
     self.sslSocket = sslSocket
     super.init()
   }
@@ -44,9 +52,11 @@ class iOSSSLInputStream : JavaIoInputStream {
     var actuallyRead : Int = 0
     var status = noErr
     
-    repeat {
-      status = SSLRead(sslSocket.getSSLContext()!, bufferPointer!, Int(len), &actuallyRead)
-    } while status == errSSLWouldBlock && actuallyRead == 0
+    synchronize(on: self.sslSocket) {
+      repeat {
+        status = SSLRead(sslSocket.getSSLContext()!, bufferPointer!, Int(len), &actuallyRead)
+      } while (status == errSSLWouldBlock && actuallyRead == 0)
+    }
     
     if (status == errSecSuccess || status == errSSLWouldBlock){
       return jint(actuallyRead)
@@ -103,9 +113,9 @@ class iOSSSLInputStream : JavaIoInputStream {
 }
 
 class iOSSSLOutputStream : JavaIoOutputStream {
-  unowned let sslSocket : iOSSSLSocket
+  unowned let sslSocket: iOSSSLSocket
   
-  init(sslSocket : iOSSSLSocket) {
+  init(sslSocket: iOSSSLSocket) {
     self.sslSocket = sslSocket
     super.init()
   }
@@ -116,8 +126,11 @@ class iOSSSLOutputStream : JavaIoOutputStream {
     var remaining: Int = Int(len);
     
     while (remaining > 0) {
-      let status = SSLWrite(self.sslSocket.getSSLContext()!, bufferPointer, remaining,
+      var status = noErr
+      synchronize(on: self.sslSocket) {
+        status = SSLWrite(self.sslSocket.getSSLContext()!, bufferPointer, remaining,
                             &actuallyWritten)
+      }
       if (status == noErr || status == errSSLWouldBlock){
         bufferPointer = bufferPointer?.advanced(by: actuallyWritten)
         remaining -= actuallyWritten
@@ -150,12 +163,14 @@ class iOSSSLOutputStream : JavaIoOutputStream {
     // copied to the cache, but not yet (completely) sent. In order to flush
     // this cache, we have to call SSLWrite on an empty buffer.
     
-    var status : OSStatus
-    var actuallyWritten : Int = 0
+    var status: OSStatus = noErr
+    var actuallyWritten: Int = 0
     
-    repeat {
-      status = SSLWrite(sslSocket.getSSLContext()!, nil, 0, &actuallyWritten)
-    } while (status == errSSLWouldBlock)
+    synchronize(on: self) {
+      repeat {
+        status = SSLWrite(sslSocket.getSSLContext()!, nil, 0, &actuallyWritten)
+      } while (status == errSSLWouldBlock)
+    }
     
     sslSocket.getUnderlyingSocket().getOutputStream().flush()
   }
@@ -184,7 +199,7 @@ class iOSSSLSocket: UVDWrappedSSLSocket{
       throwIOException(description: "Error setting IO functions: ", status: status)
     }
     
-    let connectionRef : SSLConnectionRef = UnsafeRawPointer(
+    let connectionRef: SSLConnectionRef = UnsafeRawPointer(
       Unmanaged.passUnretained(self).toOpaque())
     status = SSLSetConnection(sslContext!, connectionRef)
     if (status != noErr) {
@@ -201,9 +216,11 @@ class iOSSSLSocket: UVDWrappedSSLSocket{
   override func startHandshake() {
     var status = noErr
     
-    repeat {
-      status = SSLHandshake(sslContext!)
-    } while status == errSSLWouldBlock
+    synchronize(on: self) {
+      repeat {
+        status = SSLHandshake(sslContext!)
+      } while (status == errSSLWouldBlock)
+    }
     
     if (status != noErr) {
       throwIOException(description: "Handshake error: ", status: status)
@@ -219,7 +236,10 @@ class iOSSSLSocket: UVDWrappedSSLSocket{
       ObjC.throwException(JavaIoIOException(nsString: "Already closed"))
     }
     
-    let status = SSLClose(sslContext!)
+    var status = noErr
+    synchronize(on: self) {
+      status = SSLClose(sslContext!)
+    }
     if (status != noErr) {
       throwIOException(description: "Closing error: ", status: status)
     }
