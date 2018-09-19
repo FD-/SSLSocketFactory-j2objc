@@ -4,6 +4,7 @@ An SSLSocketFactory for j2objc that uses the native iOS [SecureTransport API](ht
 # Functionality
 The provided `SSLSocketFactory` works, but it doesn't provide any customisability. The SecureTransport API's default values are used for any parameters. This means it works for the most common scenarios, for example when you have to use an `SSLSocket` for connecting to an HTTPS server.
 I successfully use it with a slightly stripped-down version of OkHttp that I ported. In particular, as the required lower-level components are not bridged into the Java layer, I had to remove support for `HostnameVerifier`, and `CertificatePinner` (from OkHttp). 
+
 _Important_: Please be warned that the provided code produces memory leaks whenever it throws an Exception. AFAICT, this is because Swift wasn't really designed to deal with `NSExceptions`. My code uses Objective C utility functions so it is able to throw and catch exceptions, but there'll still be a Swift stack and I couldn't find any way to make Swift properly unwind the stack when throwing an exception. Instead of relying on the provided code in a production project, I rather suggest seeing it as a proof of concept for how a full-featured Objective C implementation could utilize the Secure Transport Framework.
 
 # Overhead
