@@ -166,7 +166,7 @@ class iOSSSLOutputStream : JavaIoOutputStream {
     var status: OSStatus = noErr
     var actuallyWritten: Int = 0
     
-    synchronize(on: self) {
+    synchronize(on: self.sslSocket) {
       repeat {
         status = SSLWrite(sslSocket.getSSLContext()!, nil, 0, &actuallyWritten)
       } while (status == errSSLWouldBlock)
