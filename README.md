@@ -1,3 +1,6 @@
+# Update
+An Objective-C version based on my code is [now included in j2objc](https://github.com/google/j2objc/commit/2ad5fd094c1f7da14859cb57af76451fe4c7ec79), so this repository is mosty obsolete!
+
 # SSLSocketFactory-j2objc
 An SSLSocketFactory for j2objc that uses the native iOS [SecureTransport API](https://developer.apple.com/documentation/security/secure_transport). My implementation is in Swift, because I set up the j2objc-generated code as a static library that I use from within a Swift project. In that Swift project, I then create an `iOSSSLSocketFactory` that I pass to a function of the j2objc-generated code, where the original Java code uses it to create `SSLSockets`.
 
